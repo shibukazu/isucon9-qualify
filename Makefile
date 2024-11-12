@@ -67,3 +67,7 @@ clean-zip:
 	rm -f initial-data/result/initial-data.zip
 
 .PHONY: all init vet errcheck staticcheck clean
+
+.PHONY: bench
+bench:
+	docker container run -p 5678:5678 -p 7890:7890 -i isucari-benchmarker /bin/benchmarker -target-url http://host.docker.internal -data-dir /initial-data -static-dir /static -payment-url http://host.docker.internal:5678 -payment-port 5678 -shipment-url http://host.docker.internal:7890 -shipment-port 7890
