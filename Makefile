@@ -70,4 +70,25 @@ clean-zip:
 
 .PHONY: bench
 bench:
-	docker container run -p 5678:5678 -p 7890:7890 -i isucari-benchmarker /bin/benchmarker -target-url http://host.docker.internal -data-dir /initial-data -static-dir /static -payment-url http://host.docker.internal:5678 -payment-port 5678 -shipment-url http://host.docker.internal:7890 -shipment-port 7890
+	TIMESTAMP=`date +"%Y%m%d%H%M%S"` && \
+	mkdir -p webapp/result/$$TIMESTAMP && \
+	rm -rf webapp/log/** && \
+	cd webapp && \
+	docker compose restart mysql nginx && \
+	while [ "`docker inspect -f '{{.State.Health.Status}}' isucari-mysql-1`" != "healthy" ]; do \
+		echo "Waiting for MySQL to be healthy..."; \
+		sleep 2; \
+	done && \
+	while [ "`docker inspect -f '{{.State.Health.Status}}' isucari-nginx-1`" != "healthy" ]; do \
+		echo "Waiting for Nginx to be healthy..."; \
+		sleep 2; \
+	done && \
+	cd ../ && \
+	docker container run --rm -p 5678:5678 -p 7890:7890 -i isucari-benchmarker /bin/benchmarker -target-url http://host.docker.internal -data-dir /initial-data -static-dir /static -payment-url http://host.docker.internal:5678 -payment-port 5678 -shipment-url http://host.docker.internal:7890 -shipment-port 7890 | tee webapp/result/$$TIMESTAMP/result.json && \
+	mkdir -p webapp/result/$$TIMESTAMP/log/mysql webapp/result/$$TIMESTAMP/log/nginx && \
+	cp webapp/log/mysql/slow.log webapp/result/$$TIMESTAMP/log/mysql/ && \
+	cp webapp/log/nginx/access.log webapp/result/$$TIMESTAMP/log/nginx/ && \
+	cp webapp/log/nginx/error.log webapp/result/$$TIMESTAMP/log/nginx/ && \
+	alp json --sort sum -r -m "/posts/[0-9]+,/@\w+,/image/\d+" -o count,method,uri,min,avg,max,sum < webapp/result/$$TIMESTAMP/log/nginx/access.log > webapp/result/$$TIMESTAMP/log/nginx/alp.log && \
+	pt-query-digest webapp/result/$$TIMESTAMP/log/mysql/slow.log > webapp/result/$$TIMESTAMP/log/mysql/pt-query-digest.log
+	

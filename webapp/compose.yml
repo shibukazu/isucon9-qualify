@@ -5,10 +5,17 @@ services:
     volumes:
       - ./etc/nginx/conf.d:/etc/nginx/conf.d
       - ./public:/public
+      - ./log/nginx:/var/log/nginx
     ports:
       - "80:80"
     networks:
       - my_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   app:
     build:
@@ -43,10 +50,17 @@ services:
       - mysql:/var/lib/mysql
       - ./sql:/docker-entrypoint-initdb.d
       - ./etc/conf.d:/etc/mysql/conf.d
+      - ./log/mysql:/var/log/mysql
     ports:
       - "3306:3306"
     networks:
       - my_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
