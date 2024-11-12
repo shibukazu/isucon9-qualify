@@ -466,6 +466,32 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	return userSimple, err
 }
 
+func getBulkUserSimpleByID(userIDs []int64) (userSimples []UserSimple, err error) {
+	if len(userIDs) == 0 {
+		return userSimples, nil
+	}
+	users := []User{}
+	query, args, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", userIDs)
+	if err != nil {
+		return userSimples, err
+	}
+	query = dbx.Rebind(query)
+	err = dbx.Select(&users, query, args...)
+	if err != nil {
+		return userSimples, err
+	}
+
+	for _, user := range users {
+		userSimple := UserSimple{
+			ID:           user.ID,
+			AccountName:  user.AccountName,
+			NumSellItems: user.NumSellItems,
+		}
+		userSimples = append(userSimples, userSimple)
+	}
+	return userSimples, err
+}
+
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
 	for _, c := range Categories {
 		if c.ID == categoryID {
@@ -493,6 +519,17 @@ func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err err
 		}
 		return category, err
 	*/
+}
+
+func getBulkCategoryByID(categoryIDs []int) (categories []Category, err error) {
+	for _, categoryID := range categoryIDs {
+		category, err := getCategoryByID(dbx, categoryID)
+		if err != nil {
+			return categories, err
+		}
+		categories = append(categories, category)
+	}
+	return categories, err
 }
 
 func getConfigByName(name string) (string, error) {
@@ -634,16 +671,50 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	itemSimples := []ItemSimple{}
+	sellerIDs := []int64{}
+	categoryIds := []int{}
 	for _, item := range items {
+		sellerIDs = append(sellerIDs, item.SellerID)
+		categoryIds = append(categoryIds, item.CategoryID)
+	}
+	selles, err := getBulkUserSimpleByID(sellerIDs)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	categories, err := getBulkCategoryByID(categoryIds)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	for _, item := range items {
+		/*  上記bulkで対応
 		seller, err := getUserSimpleByID(dbx, item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
+		*/
+		seller := UserSimple{}
+		for _, s := range selles {
+			if s.ID == item.SellerID {
+				seller = s
+				break
+			}
+		}
+		/*  上記bulkで対応
 		category, err := getCategoryByID(dbx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
+		}
+		*/
+		category := Category{}
+		for _, c := range categories {
+			if c.ID == item.CategoryID {
+				category = c
+				break
+			}
 		}
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
@@ -943,11 +1014,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tx := dbx.MustBegin()
 	items := []Item{}
 	if itemID > 0 && createdAt > 0 {
 		// paging
-		err := tx.Select(&items,
+		err := dbx.Select(&items,
 			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
 			user.ID,
 			user.ID,
@@ -964,12 +1034,11 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			tx.Rollback()
 			return
 		}
 	} else {
 		// 1st page
-		err := tx.Select(&items,
+		err := dbx.Select(&items,
 			`
 			(
 				SELECT * FROM items
@@ -1002,24 +1071,85 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "db error")
-			tx.Rollback()
 			return
 		}
 	}
 
 	itemDetails := []ItemDetail{}
+	sellerIds := []int64{}
+	categoryIds := []int{}
+	buyerIds := []int64{}
+	itemIds := []int64{}
 	for _, item := range items {
+		sellerIds = append(sellerIds, item.SellerID)
+		categoryIds = append(categoryIds, item.CategoryID)
+		itemIds = append(itemIds, item.ID)
+		if item.BuyerID != 0 {
+			buyerIds = append(buyerIds, item.BuyerID)
+		}
+	}
+
+	sellers, err := getBulkUserSimpleByID(sellerIds)
+	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, fmt.Sprintf("seller not found: %+v", err))
+		return
+	}
+	categories, err := getBulkCategoryByID(categoryIds)
+	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, fmt.Sprintf("category not found: %+v", err))
+		return
+	}
+	buyers, err := getBulkUserSimpleByID(buyerIds)
+	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, fmt.Sprintf("buyer not found: %+v", err))
+		return
+	}
+	TransactionEvidences := []TransactionEvidence{}
+	if len(itemIds) > 0 {
+		query, args, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIds)
+		if err != nil {
+			outputErrorMsg(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		query = dbx.Rebind(query)
+		err = dbx.Select(&TransactionEvidences, query, args...)
+		if err != nil && err != sql.ErrNoRows {
+			// It's able to ignore ErrNoRows
+			log.Print(err)
+			outputErrorMsg(w, http.StatusInternalServerError, "db error")
+			return
+		}
+	}
+	for _, item := range items {
+		/*  上記のバルクで取得するように変更
 		seller, err := getUserSimpleByID(tx, item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			tx.Rollback()
 			return
 		}
+		*/
+		seller := UserSimple{}
+		for _, s := range sellers {
+			if s.ID == item.SellerID {
+				seller = s
+				break
+			}
+		}
+		/*  上記のバルクで取得するように変更
 		category, err := getCategoryByID(tx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			tx.Rollback()
 			return
+		}
+		*/
+		category := Category{}
+		for _, c := range categories {
+			if c.ID == item.CategoryID {
+				category = c
+				break
+			}
 		}
 
 		itemDetail := ItemDetail{
@@ -1042,17 +1172,27 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if item.BuyerID != 0 {
+			/*  上記のバルクで取得するように変更
 			buyer, err := getUserSimpleByID(tx, item.BuyerID)
 			if err != nil {
 				outputErrorMsg(w, http.StatusNotFound, "buyer not found")
 				tx.Rollback()
 				return
 			}
+			*/
+			buyer := UserSimple{}
+			for _, b := range buyers {
+				if b.ID == item.BuyerID {
+					buyer = b
+					break
+				}
+			}
 			itemDetail.BuyerID = item.BuyerID
 			itemDetail.Buyer = &buyer
 		}
 
 		transactionEvidence := TransactionEvidence{}
+		/*  上記のバルクで取得するように変更
 		err = tx.Get(&transactionEvidence, "SELECT * FROM `transaction_evidences` WHERE `item_id` = ?", item.ID)
 		if err != nil && err != sql.ErrNoRows {
 			// It's able to ignore ErrNoRows
@@ -1061,19 +1201,24 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			tx.Rollback()
 			return
 		}
+		*/
+		for _, te := range TransactionEvidences {
+			if te.ItemID == item.ID {
+				transactionEvidence = te
+				break
+			}
+		}
 
 		if transactionEvidence.ID > 0 {
 			shipping := Shipping{}
-			err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
+			err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 			if err == sql.ErrNoRows {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
-				tx.Rollback()
 				return
 			}
 			if err != nil {
 				log.Print(err)
 				outputErrorMsg(w, http.StatusInternalServerError, "db error")
-				tx.Rollback()
 				return
 			}
 			ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
@@ -1082,7 +1227,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Print(err)
 				outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-				tx.Rollback()
 				return
 			}
 
@@ -1093,7 +1237,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 		itemDetails = append(itemDetails, itemDetail)
 	}
-	tx.Commit()
 
 	hasNext := false
 	if len(itemDetails) > TransactionsPerPage {
