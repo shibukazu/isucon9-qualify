@@ -368,8 +368,10 @@ func main() {
 	conf.Passwd = password
 	conf.DBName = dbname
 	conf.ParseTime = true
+	conf.InterpolateParams = true
 
-	dbx, err = sqlx.Open("mysql", conf.FormatDSN())
+	dsn := conf.FormatDSN()
+	dbx, err = sqlx.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("failed to connect to DB: %s.", err.Error())
 	}
