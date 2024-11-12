@@ -269,6 +269,52 @@ type resSetting struct {
 	Categories        []Category `json:"categories"`
 }
 
+var Categories = []Category{
+	{ID: 1, ParentID: 0, CategoryName: "ソファー"},
+	{ID: 2, ParentID: 1, CategoryName: "一人掛けソファー"},
+	{ID: 3, ParentID: 1, CategoryName: "二人掛けソファー"},
+	{ID: 4, ParentID: 1, CategoryName: "コーナーソファー"},
+	{ID: 5, ParentID: 1, CategoryName: "二段ソファー"},
+	{ID: 6, ParentID: 1, CategoryName: "ソファーベッド"},
+	{ID: 10, ParentID: 0, CategoryName: "家庭用チェア"},
+	{ID: 11, ParentID: 10, CategoryName: "スツール"},
+	{ID: 12, ParentID: 10, CategoryName: "クッションスツール"},
+	{ID: 13, ParentID: 10, CategoryName: "ダイニングチェア"},
+	{ID: 14, ParentID: 10, CategoryName: "リビングチェア"},
+	{ID: 15, ParentID: 10, CategoryName: "カウンターチェア"},
+	{ID: 20, ParentID: 0, CategoryName: "キッズチェア"},
+	{ID: 21, ParentID: 20, CategoryName: "学習チェア"},
+	{ID: 22, ParentID: 20, CategoryName: "ベビーソファ"},
+	{ID: 23, ParentID: 20, CategoryName: "キッズハイチェア"},
+	{ID: 24, ParentID: 20, CategoryName: "テーブルチェア"},
+	{ID: 30, ParentID: 0, CategoryName: "オフィスチェア"},
+	{ID: 31, ParentID: 30, CategoryName: "デスクチェア"},
+	{ID: 32, ParentID: 30, CategoryName: "ビジネスチェア"},
+	{ID: 33, ParentID: 30, CategoryName: "回転チェア"},
+	{ID: 34, ParentID: 30, CategoryName: "リクライニングチェア"},
+	{ID: 35, ParentID: 30, CategoryName: "投擲用椅子"},
+	{ID: 40, ParentID: 0, CategoryName: "折りたたみ椅子"},
+	{ID: 41, ParentID: 40, CategoryName: "パイプ椅子"},
+	{ID: 42, ParentID: 40, CategoryName: "木製折りたたみ椅子"},
+	{ID: 43, ParentID: 40, CategoryName: "キッチンチェア"},
+	{ID: 44, ParentID: 40, CategoryName: "アウトドアチェア"},
+	{ID: 45, ParentID: 40, CategoryName: "作業椅子"},
+	{ID: 50, ParentID: 0, CategoryName: "ベンチ"},
+	{ID: 51, ParentID: 50, CategoryName: "一人掛けベンチ"},
+	{ID: 52, ParentID: 50, CategoryName: "二人掛けベンチ"},
+	{ID: 53, ParentID: 50, CategoryName: "アウトドア用ベンチ"},
+	{ID: 54, ParentID: 50, CategoryName: "収納付きベンチ"},
+	{ID: 55, ParentID: 50, CategoryName: "背もたれ付きベンチ"},
+	{ID: 56, ParentID: 50, CategoryName: "ベンチマーク"},
+	{ID: 60, ParentID: 0, CategoryName: "座椅子"},
+	{ID: 61, ParentID: 60, CategoryName: "和風座椅子"},
+	{ID: 62, ParentID: 60, CategoryName: "高座椅子"},
+	{ID: 63, ParentID: 60, CategoryName: "ゲーミング座椅子"},
+	{ID: 64, ParentID: 60, CategoryName: "ロッキングチェア"},
+	{ID: 65, ParentID: 60, CategoryName: "座布団"},
+	{ID: 66, ParentID: 60, CategoryName: "空気椅子"},
+}
+
 func init() {
 	keyPairs := []byte("abc")
 	cs := &sessions.CookieStore{
@@ -421,15 +467,32 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
-	if category.ParentID != 0 {
-		parentCategory, err := getCategoryByID(q, category.ParentID)
-		if err != nil {
-			return category, err
+	for _, c := range Categories {
+		if c.ID == categoryID {
+			if c.ParentID != 0 {
+				for _, pc := range Categories {
+					if pc.ID == c.ParentID {
+						c.ParentCategoryName = pc.CategoryName
+						break
+					}
+				}
+			}
+			return c, nil
 		}
-		category.ParentCategoryName = parentCategory.CategoryName
 	}
-	return category, err
+	return category, fmt.Errorf("category not found")
+
+	/*
+		err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
+		if category.ParentID != 0 {
+			parentCategory, err := getCategoryByID(q, category.ParentID)
+			if err != nil {
+				return category, err
+			}
+			category.ParentCategoryName = parentCategory.CategoryName
+		}
+		return category, err
+	*/
 }
 
 func getConfigByName(name string) (string, error) {
@@ -624,7 +687,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusNotFound, "category not found")
 		return
 	}
-
+	// TODO: ハードコーディングしてもよさそう
 	var categoryIDs []int
 	err = dbx.Select(&categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
 	if err != nil {
@@ -907,8 +970,27 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 1st page
 		err := tx.Select(&items,
-			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			`
+			(
+				SELECT * FROM items
+				WHERE seller_id = ?
+				AND status IN (?, ?, ?, ?, ?)
+			)
+			UNION
+			(
+				SELECT * FROM items
+				WHERE buyer_id = ?
+				AND status IN (?, ?, ?, ?, ?)
+			)
+			ORDER BY created_at DESC, id DESC
+			LIMIT ?
+			`,
 			user.ID,
+			ItemStatusOnSale,
+			ItemStatusTrading,
+			ItemStatusSoldOut,
+			ItemStatusCancel,
+			ItemStatusStop,
 			user.ID,
 			ItemStatusOnSale,
 			ItemStatusTrading,

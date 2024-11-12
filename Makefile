@@ -68,7 +68,7 @@ clean-zip:
 
 .PHONY: all init vet errcheck staticcheck clean
 
-.PHONY: bench
+.PHONY: bench rebuild
 bench:
 	TIMESTAMP=`date +"%Y%m%d%H%M%S"` && \
 	mkdir -p webapp/result/$$TIMESTAMP && \
@@ -92,3 +92,7 @@ bench:
 	alp json --sort sum -r -m "/posts/[0-9]+,/@\w+,/image/\d+" -o count,method,uri,min,avg,max,sum < webapp/result/$$TIMESTAMP/log/nginx/access.log > webapp/result/$$TIMESTAMP/log/nginx/alp.log && \
 	pt-query-digest webapp/result/$$TIMESTAMP/log/mysql/slow.log > webapp/result/$$TIMESTAMP/log/mysql/pt-query-digest.log
 	
+rebuild:
+	cd webapp && \
+	docker compose build app && docker compose up -d --no-deps --force-recreate app && \
+	cd ../
