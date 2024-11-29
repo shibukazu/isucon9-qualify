@@ -841,17 +841,52 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	itemSimples := []ItemSimple{}
+	sellerIDs := []int64{}
+	categoryIds := []int{}
 	for _, item := range items {
+		sellerIDs = append(sellerIDs, item.SellerID)
+		categoryIds = append(categoryIds, item.CategoryID)
+	}
+	selles, err := getBulkUserSimpleByID(sellerIDs)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	categories, err := getBulkCategoryByID(categoryIds)
+	if err != nil {
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	for _, item := range items {
+		/*  上記bulkで対応
 		seller, err := getUserSimpleByID(dbx, item.SellerID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "seller not found")
 			return
 		}
+		*/
+		seller := UserSimple{}
+		for _, s := range selles {
+			if s.ID == item.SellerID {
+				seller = s
+				break
+			}
+		}
+		/*  上記bulkで対応
 		category, err := getCategoryByID(dbx, item.CategoryID)
 		if err != nil {
 			outputErrorMsg(w, http.StatusNotFound, "category not found")
 			return
 		}
+		*/
+		category := Category{}
+		for _, c := range categories {
+			if c.ID == item.CategoryID {
+				category = c
+				break
+			}
+		}
+
 		itemSimples = append(itemSimples, ItemSimple{
 			ID:         item.ID,
 			SellerID:   item.SellerID,

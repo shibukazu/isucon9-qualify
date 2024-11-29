@@ -98,7 +98,10 @@ bench:
 rebuild:
 	cd webapp && \
 	docker compose build app && docker compose up -d --no-deps --force-recreate app && \
-	cd ../
+	cd ../ && \
+	curl -XPOST http://127.0.0.1:80/initialize \
+	-H 'Content-Type: application/json' \
+	-d @initialize.json
 
 pprof:
 	go tool pprof -seconds 30 -http=localhost:1080 http://localhost:6060/debug/pprof/profile
