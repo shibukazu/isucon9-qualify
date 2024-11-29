@@ -58,7 +58,7 @@ const (
 	ItemsPerPage        = 48
 	TransactionsPerPage = 10
 	// 計算コストを下げる
-	BcryptCost = 2
+	BcryptCost = 4
 )
 
 var (
