@@ -34,7 +34,32 @@ services:
     networks:
       - my_network
     ports:
-      - "6060:6060"
+      - "6061:6060"
+    volumes:
+      - ./public:/home/public
+      - ./sql:/home/sql
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    init: true
+
+  login-app:
+    build:
+      context: .
+      # rubyを使うならruby/Dockerfile
+      dockerfile: go/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_started
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASS: root
+      MYSQL_NAME: isucari
+    networks:
+      - my_network
+    ports:
+      - "6062:6060"
     volumes:
       - ./public:/home/public
       - ./sql:/home/sql
