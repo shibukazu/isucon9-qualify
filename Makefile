@@ -90,9 +90,15 @@ bench:
 	cp webapp/log/nginx/access.log webapp/result/$$TIMESTAMP/log/nginx/ && \
 	cp webapp/log/nginx/error.log webapp/result/$$TIMESTAMP/log/nginx/ && \
 	alp json --sort sum -r -m "/posts/[0-9]+,/@\w+,/image/\d+" -o count,method,uri,min,avg,max,sum < webapp/result/$$TIMESTAMP/log/nginx/access.log > webapp/result/$$TIMESTAMP/log/nginx/alp.log && \
-	pt-query-digest webapp/result/$$TIMESTAMP/log/mysql/slow.log > webapp/result/$$TIMESTAMP/log/mysql/pt-query-digest.log
+	pt-query-digest webapp/result/$$TIMESTAMP/log/mysql/slow.log > webapp/result/$$TIMESTAMP/log/mysql/pt-query-digest.log && \
+	curl -XPOST http://127.0.0.1:80/initialize \
+	-H 'Content-Type: application/json' \
+	-d @initialize.json
 	
 rebuild:
 	cd webapp && \
 	docker compose build app && docker compose up -d --no-deps --force-recreate app && \
 	cd ../
+
+pprof:
+	go tool pprof -seconds 30 -http=localhost:1080 http://localhost:6060/debug/pprof/profile

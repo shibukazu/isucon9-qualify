@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,8 +57,8 @@ const (
 
 	ItemsPerPage        = 48
 	TransactionsPerPage = 10
-
-	BcryptCost = 10
+	// 計算コストを下げる
+	BcryptCost = 2
 )
 
 var (
@@ -336,6 +337,11 @@ func init() {
 }
 
 func main() {
+	// pprof計測エンドポイントの追加
+	go func() {
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
+
 	host := os.Getenv("MYSQL_HOST")
 	if host == "" {
 		host = "127.0.0.1"
