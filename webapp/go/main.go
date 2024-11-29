@@ -500,6 +500,19 @@ func getBulkUserSimpleByID(userIDs []int64) (userSimples []UserSimple, err error
 	return userSimples, err
 }
 
+func getBulkShippingByTransactionEvidenceID(transactionEvidenceIDs []int64) (shippings []Shipping, err error) {
+	if len(transactionEvidenceIDs) == 0 {
+		return shippings, nil
+	}
+	query, args, err := sqlx.In("SELECT * FROM `shippings` WHERE `transaction_evidence_id` IN (?)", transactionEvidenceIDs)
+	if err != nil {
+		return shippings, err
+	}
+	query = dbx.Rebind(query)
+	err = dbx.Select(&shippings, query, args...)
+	return shippings, err
+}
+
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
 	for _, c := range Categories {
 		if c.ID == categoryID {
@@ -1163,6 +1176,44 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	transactionEvidenceIds := []int64{}
+	for _, te := range TransactionEvidences {
+		transactionEvidenceIds = append(transactionEvidenceIds, te.ID)
+	}
+	shippings, err := getBulkShippingByTransactionEvidenceID(transactionEvidenceIds)
+	if err != nil {
+		outputErrorMsg(w, http.StatusNotFound, fmt.Sprintf("shipping not found: %+v", err))
+		return
+	}
+	var ssrwCh = make(chan *APIShipmentStatusResWrapper, len(shippings))
+	var errCh = make(chan error, len(shippings))
+	for _, shipping := range shippings {
+		go func(shipping Shipping) {
+			ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
+				ReserveID: shipping.ReserveID,
+			})
+			if err != nil {
+				errCh <- err
+				return
+			}
+			ssrwCh <- &APIShipmentStatusResWrapper{
+				APIShipmentStatusRes: ssr,
+				ReserveID:            shipping.ReserveID,
+			}
+		}(shipping)
+	}
+	shipmentStatuses := make(map[string]*APIShipmentStatusRes)
+	for range shippings {
+		select {
+		case ssrw := <-ssrwCh:
+			shipmentStatuses[ssrw.ReserveID] = ssrw.APIShipmentStatusRes
+		case err := <-errCh:
+			log.Print(err)
+			outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+			return
+		}
+	}
+
 	for _, item := range items {
 		/*  上記のバルクで取得するように変更
 		seller, err := getUserSimpleByID(tx, item.SellerID)
@@ -1254,6 +1305,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 		if transactionEvidence.ID > 0 {
 			shipping := Shipping{}
+			/*  上記のバルクで取得するように変更
 			err = dbx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
 			if err == sql.ErrNoRows {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
@@ -1264,6 +1316,15 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				outputErrorMsg(w, http.StatusInternalServerError, "db error")
 				return
 			}
+			*/
+			for _, s := range shippings {
+				if s.TransactionEvidenceID == transactionEvidence.ID {
+					shipping = s
+					break
+				}
+			}
+
+			/*  上記のバルクで取得するように変更
 			ssr, err := APIShipmentStatus(getShipmentServiceURL(), &APIShipmentStatusReq{
 				ReserveID: shipping.ReserveID,
 			})
@@ -1272,10 +1333,11 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 				outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
 				return
 			}
+			*/
 
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = ssr.Status
+			itemDetail.ShippingStatus = shipmentStatuses[shipping.ReserveID].Status
 		}
 
 		itemDetails = append(itemDetails, itemDetail)

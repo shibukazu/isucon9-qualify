@@ -41,6 +41,12 @@ type APIShipmentRequestReq struct {
 	ReserveID string `json:"reserve_id"`
 }
 
+// Chanにて使用する
+type APIShipmentStatusResWrapper struct {
+	ReserveID            string
+	APIShipmentStatusRes *APIShipmentStatusRes
+}
+
 type APIShipmentStatusRes struct {
 	Status      string `json:"status"`
 	ReserveTime int64  `json:"reserve_time"`
